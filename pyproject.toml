@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "edge-profile-mcp"
+version = "0.1.0"
+description = "MCP server that drives your real Microsoft Edge in a private, isolated, persistent profile."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "董铭月", email = "Dongmingyue-loss@users.noreply.github.com" }]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "edge",
+    "microsoft-edge",
+    "playwright",
+    "browser-automation",
+    "ai-agent",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "mcp>=1.30.0,<2",
+    "playwright>=1.62.0,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
+
+[project.urls]
+Homepage = "https://github.com/Dongmingyue-loss/edge-profile-mcp"
+Repository = "https://github.com/Dongmingyue-loss/edge-profile-mcp"
+Issues = "https://github.com/Dongmingyue-loss/edge-profile-mcp/issues"
+Changelog = "https://github.com/Dongmingyue-loss/edge-profile-mcp/blob/main/CHANGELOG.md"
+"Author site" = "https://zhishangchunqiu.cn"
+
+[project.scripts]
+edge-profile-mcp = "edge_profile_mcp.server:main"
+edge-profile-cli = "edge_profile_mcp.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"

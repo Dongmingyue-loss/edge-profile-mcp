@@ -1,0 +1,70 @@
+name: Bug report
+description: Report something that does not work as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do **not** include cookies, tokens, or
+        personal browsing data. For security issues use the private advisory
+        link in SECURITY.md instead.
+
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      description: Output of `pip show edge-profile-mcp`, or the commit hash.
+    validations:
+      required: true
+
+  - type: input
+    id: edge
+    attributes:
+      label: Edge version
+      description: From `edge://version`, or the file version of msedge.exe.
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version and install method
+      placeholder: "3.12.14, pip install -e ."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Call `start` with ...
+        2. Call `navigate` with ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour and error text
+      description: Paste the tool's error message. Redact URLs and data you consider private.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - label: The daily-use Edge browser was running at the same time
+        - label: `headless` was true
+        - label: A custom `profile_dir` was used
+        - label: A custom `download_dir` was used

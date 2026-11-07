@@ -1,0 +1,37 @@
+{
+  "name": "edge-profile-mcp",
+  "description": "Drive your real Microsoft Edge through MCP, in a private persistent profile that never touches your daily browser data.",
+  "description_i18n": {
+    "en": "Drive your real Microsoft Edge through MCP, in a private persistent profile that never touches your daily browser data.",
+    "zh-CN": "通过 MCP 驱动真实的 Microsoft Edge，运行在独立的持久化配置中，完全不影响日常浏览数据。"
+  },
+  "version": "0.1.0",
+  "author": {
+    "name": "董铭月",
+    "url": "https://github.com/Dongmingyue-loss"
+  },
+  "homepage": "https://github.com/Dongmingyue-loss/edge-profile-mcp",
+  "repository": "https://github.com/Dongmingyue-loss/edge-profile-mcp",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "edge",
+    "playwright",
+    "browser-automation",
+    "windows"
+  ],
+  "userConfig": {
+    "profile_dir": {
+      "title": "Profile directory",
+      "description": "Where the isolated Edge profile is stored. Leave empty to use %LOCALAPPDATA%\\edge-automation-mcp\\profile.",
+      "type": "string",
+      "required": false
+    },
+    "download_dir": {
+      "title": "Download directory",
+      "description": "Directory that automated downloads are saved into. Leave empty to disable downloads.",
+      "type": "string",
+      "required": false
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "edge-profile-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--quiet",
+        "--from",
+        "${ZCODE_PLUGIN_ROOT}",
+        "edge-profile-mcp"
+      ],
+      "env": {
+        "EDGE_AUTOMATION_PROFILE_DIR": "${user_config.profile_dir}",
+        "EDGE_AUTOMATION_DOWNLOAD_DIR": "${user_config.download_dir}"
+      },
+      "enabled": true,
+      "timeoutMs": 60000
+    }
+  }
+}
