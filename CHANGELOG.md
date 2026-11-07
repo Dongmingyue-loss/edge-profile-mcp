@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `fetch_text` MCP tool and `edge-fetch` command: fetch a page as clean text,
+  decoding GB18030 correctly and preferring the rendered DOM, with optional
+  caching and a `source` field reporting which path was used.
+- `fetch_links` MCP tool: return a page's anchors, parsed in the DOM first.
+- `search_web` MCP tool (`edge-search`) and `edge-search-rss` command: find
+  sources on trusted domains by submitting the engine's own search form.
+- Search guards: relevance filtering, captcha/interstitial detection, Bing
+  single-character truncation detection, and a `blocked_engines` /
+  `degraded_engines` report instead of fabricated results.
+- `cache_dir` setting (`EDGE_AUTOMATION_CACHE_DIR`) for fetched text and search
+  logs.
+- [ANTI-BOT.md](ANTI-BOT.md): measured anti-automation behaviour of Bing, Bing
+  RSS, Baidu, Yandex and Sogou, with the handling policy for each.
+- `scripts/probe_engines.py` to reproduce those measurements.
+- 33 browser-free unit tests for the parsing and filtering rules.
+
 ## [0.1.0] - 2026-11-08
 
 ### Added

@@ -4,6 +4,7 @@ import asyncio
 import base64
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -38,6 +39,27 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Location', '/other')
             self.end_headers()
             return
+        if self.path == '/gb':
+            # A GB18030 page that lies about its charset, like several Chinese
+            # government sites do. Fetching raw bytes must still decode cleanly.
+            body = ('<html><head><meta charset="utf-8"><title>中文页面</title></head>'
+                    '<body><p>' + '这是一段用于测试编码回退的中文正文内容。' * 30 +
+                    '</p></body></html>').encode('gb18030')
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path == '/long':
+            body = ('<html><head><title>Long</title></head><body>' +
+                    '<p>article paragraph content here</p>' * 40 + '</body></html>').encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         body = b'<title>Other</title><h1>Second page</h1>' if self.path == '/other' else PAGE
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -70,14 +92,70 @@ class BrowserIntegration(HTTPFixture, unittest.TestCase):
     def setUp(self):
         self.profile = tempfile.mkdtemp(prefix='edge-test-profile-')
         self.addCleanup(shutil.rmtree, self.profile, True)
+        self.cache = tempfile.mkdtemp(prefix='edge-test-cache-')
+        self.addCleanup(shutil.rmtree, self.cache, True)
         self.browser = self.make_browser()
         self.addCleanup(self.browser.close)
         self.tab = self.browser.start()
 
     def make_browser(self, **kwargs):
-        options = {'headless': True, 'timeout_ms': 15000, 'profile_dir': self.profile}
+        options = {'headless': True, 'timeout_ms': 15000, 'profile_dir': self.profile,
+                   'cache_dir': self.cache}
         options.update(kwargs)
         return BrowserController(**options)
+
+    def test_fetch_text_renders_and_caches(self):
+        result = self.browser.fetch_text(self.url + '/long')
+        self.assertEqual(result['status'], 200)
+        self.assertIn('article paragraph content here', result['text'])
+        self.assertEqual(result['source'], 'rendered')
+        self.assertTrue(result['path'])
+        self.assertTrue(os.path.isfile(result['path']))
+        with open(result['path'], encoding='utf-8') as handle:
+            self.assertIn('URL: ' + self.url + '/long', handle.read())
+
+    def test_fetch_text_skips_cache_when_asked(self):
+        result = self.browser.fetch_text(self.url + '/long', save=False)
+        self.assertIsNone(result['path'])
+        self.assertIn('article paragraph', result['text'])
+
+    def test_fetch_text_decodes_gb18030(self):
+        result = self.browser.fetch_text(self.url + '/gb', save=False)
+        self.assertIn('中文', result['title'] + result['text'])
+        self.assertNotIn('锟', result['text'])
+
+    def test_fetch_links_returns_anchors(self):
+        result = self.browser.fetch_links(self.url + '/')
+        self.assertEqual(result['status'], 200)
+        hrefs = [link['href'] for link in result['links']]
+        self.assertTrue(any(h.endswith('/other') for h in hrefs), hrefs)
+
+    def test_fetch_links_limit(self):
+        # The fixture page has a single anchor, so the cap is exercised as an
+        # upper bound rather than as truncation.
+        result = self.browser.fetch_links(self.url + '/', limit=1)
+        self.assertLessEqual(len(result['links']), 1)
+        self.assertEqual(result['truncated'], result['total'] > 1)
+
+    def test_fetch_rejects_non_http(self):
+        with self.assertRaises(BrowserControlError):
+            self.browser.fetch_text('file:///etc/passwd')
+        with self.assertRaises(BrowserControlError):
+            self.browser.fetch_links('javascript:alert(1)')
+
+    def test_search_results_are_filtered_by_relevance(self):
+        # A local page is not a search engine: the helper that decides whether a
+        # result set is usable must reject unrelated titles.
+        from edge_profile_mcp import tools
+        anchors = [
+            {'href': self.url + '/srcsite/a/b/page.html',
+             'text': '普通高等学校健康教育指导纲要'},
+            {'href': self.url + '/a/b/unrelated.html', 'text': '大（汉语文字）百科'},
+        ]
+        rows = tools.parse_search_results(
+            anchors, limit=10, trusted_only=False, query='健康教育')
+        self.assertEqual([r['text'] if 'text' in r else r['title'] for r in rows],
+                         ['普通高等学校健康教育指导纲要'])
 
     def test_session_tabs_navigation_and_cleanup(self):
         self.assertEqual(len(self.browser.list_tabs()), 1)
@@ -236,7 +314,7 @@ class MCPIntegration(HTTPFixture, unittest.IsolatedAsyncioTestCase):
                 self.assertEqual({tool.name for tool in listing.tools}, {
                     'start', 'close', 'list_tabs', 'new_tab', 'close_tab', 'navigate',
                     'snapshot', 'screenshot', 'click', 'fill', 'select', 'press',
-                    'click_and_wait_download'})
+                    'click_and_wait_download', 'fetch_text', 'fetch_links', 'search_web'})
 
                 async def call(name, arguments=None, error=False):
                     result = await asyncio.wait_for(session.call_tool(name, arguments or {}), timeout=30)

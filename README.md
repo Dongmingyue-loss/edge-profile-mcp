@@ -106,6 +106,9 @@ MCP and CLI share operation names and most parameters. Differences: the CLI
 | `select` | `tab_id` + selector + one of `value`/`label` | selected values |
 | `press` | `tab_id`, `key` + selector | confirmation |
 | `click_and_wait_download` | `tab_id` + selector, optional `timeout_ms` | `{path, filename, suggested_filename}` |
+| `fetch_text` | `url`, optional `save`, `wait_ms` | `{url, status, title, chars, source, path, text}` |
+| `fetch_links` | `url`, optional `limit` | `{url, status, title, total, truncated, links}` |
+| `search_web` | `query`, optional `trusted_only`, `limit` | `{query, engine, total, results}` |
 
 ### Selector rules
 
@@ -130,12 +133,82 @@ error; oversized snapshots are truncated with `truncated: true`.
 Headless mode uses a 1280×720 viewport. Headed mode maximises a real window and
 uses the actual window size.
 
+## Content extraction and search
+
+Three tools go beyond page interaction, aimed at research work: turning pages
+into text, harvesting links, and finding sources.
+
+### `fetch_text` — clean article text
+
+Fetches the page through the browser's own request context, decodes the raw
+bytes explicitly, and prefers the rendered DOM. `source` reports which path was
+taken: `rendered` or `static`.
+
+Explicit decoding matters for real sites: several Chinese government pages
+declare UTF-8 but serve GB18030, and Edge's text decoder turns those into
+mojibake. Reading the body bytes and decoding with `gb18030` when the declared
+charset is GB avoids that class of error entirely.
+
+With `save=True` the text is written to the cache directory and `path` is
+returned; the file starts with `URL:` and `TITLE:` header lines.
+
+### `fetch_links` — anchors on a page
+
+Returns `[{href, text}]`, capped by `limit`. Parsed in the DOM first, so anchors
+created by scripts are included, with a raw-HTML regex as fallback.
+
+### `search_web` — find sources
+
+Searches by **typing into the engine's own search box** and submitting the form,
+then filters results to trusted domains (government, academic, major health).
+
+The form submission is not cosmetic. Measured behaviour: a bare
+`/search?q=<full query>` request to Bing returns HTTP 200 with 10 result
+containers, but every result is about the query's **first character** — a silent
+degradation that looks like success. Submitting the home-page form returns correct
+results (10/10 relevant across repeated trials). See [ANTI-BOT.md](ANTI-BOT.md)
+for the measurements and for what Baidu, Yandex and Sogou do.
+
+Every result set passes a relevance check before being accepted. When engines
+serve captchas or truncated results, the tool returns `total: 0` with
+`blocked_engines` / `degraded_engines` and a hint, rather than passing page
+furniture off as results.
+
+```text
+search_web("流感疫苗 接种")  → engine: bing
+  - 中国疾病预防控制中心发布《中国流感疫苗预防接种技术指南…》
+    https://www.chinacdc.cn/jkts/202609/t20260903_1839780.html
+```
+
+## Command line tools
+
+Beyond the interactive CLI, three research commands are installed:
+
+```powershell
+edge-fetch links <url> [url ...]     # anchors as JSON
+edge-fetch text <url> [url ...]      # save page text into the cache
+edge-fetch get <url>                 # print text to stdout
+edge-fetch file urls.txt             # one URL per line
+
+edge-search "query" ["query" ...]    # Bing/Sogou in a real tab
+edge-search --all "query"            # do not restrict to trusted domains
+
+edge-search-rss "query"              # Bing RSS, no browser at all
+```
+
+They share the same controller, profile and cache as the MCP server, so no
+separate browser is launched and data isolation is identical.
+
+Cache location defaults to `%LOCALAPPDATA%\edge-automation-mcp\cache`
+(override with `EDGE_AUTOMATION_CACHE_DIR` or `cache_dir` on `start`).
+
 ## Profile and download locations
 
 | Setting | Default | Override |
 | --- | --- | --- |
 | Profile | `%LOCALAPPDATA%\edge-automation-mcp\profile` | `profile_dir` param or `EDGE_AUTOMATION_PROFILE_DIR` |
 | Downloads | disabled | `download_dir` param or `EDGE_AUTOMATION_DOWNLOAD_DIR` |
+| Cache | `%LOCALAPPDATA%\edge-automation-mcp\cache` | `cache_dir` param or `EDGE_AUTOMATION_CACHE_DIR` |
 
 Pointing `profile_dir` at a daily-driver browser data directory (Edge, Chrome,
 Brave, Firefox) is rejected. One profile directory can be open by only one Edge
@@ -199,7 +272,9 @@ See [SECURITY.md](SECURITY.md) for the full policy and private reporting route.
 ```
 
 The suite starts real Edge instances against a local `http.server` fixture — no
-public internet access is needed. See [CONTRIBUTING.md](CONTRIBUTING.md) and
+public internet access is needed. `tests/test_tools.py` covers the parsing rules
+with no browser at all and runs in under a second. See
+[CONTRIBUTING.md](CONTRIBUTING.md), [ANTI-BOT.md](ANTI-BOT.md) and
 [TECHNICAL-DESIGN.md](TECHNICAL-DESIGN.md) (Chinese) for architecture details.
 
 ## License

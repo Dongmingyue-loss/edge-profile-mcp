@@ -53,6 +53,9 @@ Changelog = "https://github.com/Dongmingyue-loss/edge-profile-mcp/blob/main/CHAN
 [project.scripts]
 edge-profile-mcp = "edge_profile_mcp.server:main"
 edge-profile-cli = "edge_profile_mcp.cli:main"
+edge-fetch = "edge_profile_mcp.fetch_cli:fetch_main"
+edge-search = "edge_profile_mcp.fetch_cli:search_main"
+edge-search-rss = "edge_profile_mcp.fetch_cli:search_rss_main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

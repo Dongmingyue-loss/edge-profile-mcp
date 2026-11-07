@@ -17,7 +17,7 @@ import os
 import re
 import threading
 from typing import Any, Callable, TypeVar
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from playwright.sync_api import (
     Browser,
@@ -28,6 +28,8 @@ from playwright.sync_api import (
     Playwright,
     sync_playwright,
 )
+
+from . import tools as _tools
 
 
 class BrowserControlError(RuntimeError):
@@ -124,6 +126,7 @@ class BrowserController:
         max_tabs: int = 20, max_snapshot_chars: int = 30_000,
         max_screenshot_bytes: int = 5_000_000,
         download_dir: str | None = None, profile_dir: str | None = None,
+        cache_dir: str | None = None,
     ) -> None:
         if not isinstance(headless, bool):
             raise BrowserControlError("headless must be a boolean")
@@ -139,6 +142,9 @@ class BrowserController:
             download_dir if download_dir is not None else default_download_dir()
         )
         self._profile_dir = self._prepare_profile_dir(profile_dir)
+        self._cache_dir = os.path.abspath(
+            os.path.expanduser(os.path.expandvars(cache_dir))
+        ) if isinstance(cache_dir, str) and cache_dir.strip() else _tools.default_cache_dir()
         self._headless = headless
         self._owner: int | None = None
         self._playwright: Playwright | None = None
@@ -492,3 +498,242 @@ class BrowserController:
     def press(self, tab_id: str, key: str, *, css: str | None = None, role: str | None = None, name: str | None = None) -> None:
         self._text("key", key, 100)
         self._locator(tab_id, css=css, role=role, name=name).press(key, timeout=self._timeout_ms)
+
+    # -- content extraction -------------------------------------------------
+    #
+    # These reuse the running session's request context instead of launching a
+    # second browser, so they benefit from the same proxy stack, cookies and
+    # profile as the interactive tools.  Raw bytes are decoded explicitly
+    # because some sites declare UTF-8 but serve GB18030.
+
+    @_operation
+    def fetch_text(self, url: str, *, save: bool = True, wait_ms: int = 2500) -> dict[str, Any]:
+        """Fetch one page as clean text, optionally caching it to disk.
+
+        Prefers the rendered DOM (which reflects JavaScript), falling back to a
+        raw-body parse when the rendered output is too thin to be useful.
+        """
+        self._url(url)
+        self._bounded_int("wait_ms", wait_ms, 0, 60_000)
+        context = self._require_context()
+        response = context.request.get(url, timeout=self._timeout_ms * 5)
+        raw = response.body()
+        html = _tools.decode_bytes(raw)
+        title = _tools.page_title(html)
+
+        rendered = ""
+        page = None
+        try:
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=self._timeout_ms * 4)
+            page.wait_for_timeout(wait_ms)
+            rendered = page.locator("body").inner_text(timeout=5000)
+        except PlaywrightError:
+            rendered = ""
+        finally:
+            if page is not None:
+                try:
+                    page.close()
+                except PlaywrightError:
+                    pass
+
+        if len(rendered.strip()) >= 400:
+            text = "\n".join(
+                line.strip() for line in rendered.replace("\u3000", " ").splitlines() if line.strip()
+            )
+            source = "rendered"
+        else:
+            text = _tools.html_to_text(html)
+            source = "static"
+
+        result: dict[str, Any] = {
+            "url": url,
+            "status": response.status,
+            "title": title[:1000],
+            "chars": len(text),
+            "source": source,
+            "path": None,
+        }
+        if save and len(text) >= 200:
+            path = _tools.write_cached_text(self._cache_dir, url, title, text)
+            result["path"] = str(path)
+        if len(text) > 100_000:
+            result["text"] = text[:100_000]
+            result["truncated"] = True
+        else:
+            result["text"] = text
+        return result
+
+    @_operation
+    def fetch_links(self, url: str, *, limit: int = 200) -> dict[str, Any]:
+        """Return the anchors on one page as ``{href, text}`` records."""
+        self._url(url)
+        self._bounded_int("limit", limit, 1, 2000)
+        context = self._require_context()
+        response = context.request.get(url, timeout=self._timeout_ms * 5)
+        html = _tools.decode_bytes(response.body())
+
+        # Parse in the browser first: a regex over raw HTML misses anchors that
+        # are created by scripts, use single quotes, or wrap across lines.
+        links: list[dict[str, str]] = []
+        page = None
+        try:
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=self._timeout_ms * 4)
+            links = page.eval_on_selector_all(
+                "a[href]",
+                "els => els.map(e => ({href: e.href, text: (e.innerText||'').trim()}))",
+            )
+        except PlaywrightError:
+            links = []
+        finally:
+            if page is not None:
+                try:
+                    page.close()
+                except PlaywrightError:
+                    pass
+        if not links:
+            links = _tools.extract_links(html)
+
+        normalized = [
+            {"href": str(item.get("href", "")).strip(),
+             "text": re.sub(r"\s+", " ", str(item.get("text", ""))).strip()}
+            for item in links
+            if str(item.get("href", "")).strip()
+        ]
+        return {
+            "url": url,
+            "status": response.status,
+            "title": _tools.page_title(html)[:1000],
+            "total": len(normalized),
+            "truncated": len(normalized) > limit,
+            "links": normalized[:limit],
+        }
+
+    @_operation
+    def search_web(self, query: str, *, trusted_only: bool = True,
+                   limit: int = 12) -> dict[str, Any]:
+        """Search Bing then Sogou by submitting their search form, then RSS.
+
+        The query is typed into the engine's own search box rather than appended
+        to a URL. Measured behaviour: a bare ``/search?q=`` request to Bing
+        truncates the query to a single leading character and returns results
+        about that character, while a form submission returns correct results.
+        See ANTI-BOT.md for the per-engine evidence.
+        """
+        self._text("query", query, 500)
+        self._bounded_int("limit", limit, 1, 50)
+        context = self._require_context()
+        assert context is not None
+        page = context.new_page()
+        hits: list[dict[str, str]] = []
+        used_engine: str | None = None
+        blocked: list[str] = []
+        degraded: list[str] = []
+        try:
+            for plan in _tools.search_plans():
+                engine = plan["engine"]
+                try:
+                    page.goto(plan["home"], wait_until="domcontentloaded",
+                              timeout=self._timeout_ms * 2)
+                    page.wait_for_timeout(1500)
+                    box = page.locator(plan["input"]).first
+                    box.fill(query, timeout=self._timeout_ms)
+                    box.press("Enter", timeout=self._timeout_ms)
+                    page.wait_for_load_state("domcontentloaded",
+                                             timeout=self._timeout_ms * 2)
+                    page.wait_for_timeout(2500)
+                except PlaywrightError:
+                    continue
+
+                try:
+                    body = page.locator("body").inner_text(timeout=4000)
+                except PlaywrightError:
+                    body = ""
+                if _tools.looks_like_challenge(page.url, page.title(), body):
+                    blocked.append(engine)
+                    continue
+
+                if engine == "bing":
+                    rows = page.eval_on_selector_all(
+                        "#b_results li.b_algo",
+                        "els => els.map(li => {"
+                        " const a = li.querySelector('h2 a');"
+                        " const cap = li.querySelector('.b_caption p, .b_lineclamp2');"
+                        " return {href: a ? a.href : '',"
+                        "  title: a ? (a.textContent || '').trim() : '',"
+                        "  snippet: cap ? (cap.textContent || '').trim() : ''};})",
+                    )
+                    current = _tools.parse_bing_containers(
+                        rows, limit=limit, trusted_only=trusted_only)
+                else:
+                    anchors = page.eval_on_selector_all(
+                        "a[href]",
+                        "els => els.map(e => ({href: e.href,"
+                        " text: (e.textContent || e.innerText || '').trim()}))",
+                    )
+                    current = _tools.parse_search_results(
+                        anchors, limit=limit, trusted_only=trusted_only, query=query)
+
+                # A result set that mentions nothing from the query means the
+                # engine degraded (truncated or generic results); treat it as a
+                # miss instead of returning plausible-looking noise.
+                if current and any(
+                        _tools.is_relevant(f"{row['title']} {row.get('snippet', '')}", query)
+                        or any(_tools.is_relevant(f"{row['title']} {row.get('snippet', '')}", term)
+                               for term in _tools.merge_cjk_terms(query))
+                        for row in current):
+                    hits, used_engine = current, engine
+                    break
+                if current:
+                    degraded.append(engine)
+        finally:
+            try:
+                page.close()
+            except PlaywrightError:
+                pass
+
+        # Last resort: Bing's RSS endpoint needs no browsing context at all.
+        if not hits:
+            try:
+                rss = context.request.get(
+                    f"https://cn.bing.com/search?format=rss&count=20&q="
+                    f"{quote(query)}",
+                    timeout=self._timeout_ms * 4)
+                rows = _tools.parse_rss_items(
+                    rss.text(), query, trusted_only=trusted_only)[:limit]
+                if rows:
+                    hits, used_engine = rows, "bing-rss"
+            except PlaywrightError:
+                pass
+
+        if hits:
+            try:
+                _tools.append_jsonl(self._cache_dir, "websearch.jsonl", hits)
+            except OSError:
+                pass
+        result: dict[str, Any] = {
+            "query": query,
+            "engine": used_engine,
+            "trusted_only": trusted_only,
+            "total": len(hits),
+            "results": hits,
+        }
+        if blocked:
+            result["blocked_engines"] = blocked
+        if degraded:
+            result["degraded_engines"] = degraded
+        if not hits:
+            if blocked:
+                reason = ("every engine that answered served a captcha or "
+                          "verification page instead of results")
+            elif degraded:
+                reason = ("engines returned results unrelated to the query, which "
+                          "usually means the query was truncated")
+            else:
+                reason = "no engine returned anything"
+            result["hint"] = (
+                f"No results: {reason}. Try trusted_only=false, shorten the query, "
+                "or drive the search page yourself with start/navigate/snapshot."
+            )
+        return result

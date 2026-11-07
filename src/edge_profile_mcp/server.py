@@ -73,7 +73,8 @@ def start(headless: bool = False, timeout_ms: int = 10_000,
           max_tabs: int = 20, max_snapshot_chars: int = 30_000,
           max_screenshot_bytes: int = 5_000_000,
           download_dir: str | None = None,
-          profile_dir: str | None = None) -> str:
+          profile_dir: str | None = None,
+          cache_dir: str | None = None) -> str:
     """Start the real installed Edge on a private, persistent profile.
 
     Cookies, logins, history and settings live in profile_dir and never mix with
@@ -81,11 +82,13 @@ def start(headless: bool = False, timeout_ms: int = 10_000,
     %LOCALAPPDATA%\\edge-automation-mcp\\profile (overridable with the
     EDGE_AUTOMATION_PROFILE_DIR environment variable) and survives restarts.
     Pass download_dir to allow file downloads; they are saved only there.
+    cache_dir stores fetched page text and search results.
     """
     return worker.call("start", headless=headless, timeout_ms=timeout_ms,
                        max_tabs=max_tabs, max_snapshot_chars=max_snapshot_chars,
                        max_screenshot_bytes=max_screenshot_bytes,
-                       download_dir=download_dir, profile_dir=profile_dir)
+                       download_dir=download_dir, profile_dir=profile_dir,
+                       cache_dir=cache_dir)
 
 
 @mcp.tool()
@@ -172,6 +175,33 @@ def click_and_wait_download(tab_id: str, css: str | None = None,
     """Click an element that triggers a file download and save it to download_dir."""
     return worker.call("click_and_wait_download", tab_id=tab_id, css=css,
                        role=role, name=name, timeout_ms=timeout_ms)
+
+
+@mcp.tool()
+def fetch_text(url: str, save: bool = True, wait_ms: int = 2500) -> dict[str, Any]:
+    """Fetch one page as clean text, decoding GB18030 and UTF-8 correctly.
+
+    Prefers the rendered DOM and falls back to a raw-body parse when the page is
+    too thin. With save=True the text is cached under the cache directory and the
+    returned path is included.
+    """
+    return worker.call("fetch_text", url=url, save=save, wait_ms=wait_ms)
+
+
+@mcp.tool()
+def fetch_links(url: str, limit: int = 200) -> dict[str, Any]:
+    """Return the anchors on a page as {href, text} records, capped by limit."""
+    return worker.call("fetch_links", url=url, limit=limit)
+
+
+@mcp.tool()
+def search_web(query: str, trusted_only: bool = True, limit: int = 12) -> dict[str, Any]:
+    """Search Sogou then Bing in a real tab and return matching results.
+
+    With trusted_only=True only government, academic and major health domains are
+    kept. Falls back to Bing RSS when neither search page yields results.
+    """
+    return worker.call("search_web", query=query, trusted_only=trusted_only, limit=limit)
 
 
 def main() -> None:

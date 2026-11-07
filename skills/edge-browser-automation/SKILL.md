@@ -5,7 +5,7 @@ description: Drive the real Microsoft Edge installed on this machine when a task
 
 # Edge browser automation
 
-This plugin exposes an MCP server named `edge-profile-mcp` with 13 tools. Use
+This plugin exposes an MCP server named `edge-profile-mcp` with 16 tools. Use
 them instead of shelling out to a browser or scraping with plain HTTP when the
 target needs real rendering, a logged-in session, or downloads.
 
@@ -41,6 +41,36 @@ target needs real rendering, a logged-in session, or downloads.
 - `name` may only be combined with `role` and matches the accessible name
   exactly.
 - A selector that matches several elements fails on purpose. Narrow it.
+
+## Research tasks
+
+For gathering sources rather than driving a page, use the extraction tools
+instead of navigating manually:
+
+- `fetch_text(url)` — clean article text. Handles GB18030 pages that declare
+  UTF-8, which would otherwise come back as mojibake. Returns `source`
+  (`rendered` or `static`) and a cache `path` when `save` is on.
+- `fetch_links(url)` — anchors as `{href, text}`.
+- `search_web(query)` — find sources on trusted domains.
+
+### Expect and report blocks
+
+Search engines actively resist automation, and the failure mode is deceptive:
+Bing answers a bare `/search?q=...` URL with HTTP 200 and ten results that all
+match only the query's first character. `search_web` avoids this by submitting
+the engine's form, and every result set is relevance-checked.
+
+When it returns `total: 0`, read `blocked_engines` and `degraded_engines`:
+
+- **blocked** means a captcha or verification page was served (Baidu wappass
+  slider, Yandex SmartCaptcha, Sogou antispider). Do not attempt to solve it.
+- **degraded** means results came back unrelated to the query — usually a
+  truncated query.
+
+Do not retry in a loop and do not fabricate a source list from whatever links are
+on the page. Either retry with `trusted_only=false`, narrow the query, or tell the
+user the engine is blocking and offer to let them solve the challenge once in the
+persistent profile. See ANTI-BOT.md in the repository for the measurements.
 
 ## Downloads
 

@@ -93,6 +93,9 @@ MCP 与 CLI 使用相同的操作名称和大部分参数。差异：CLI 的 `st
 | `select` | `tab_id` + 定位器 + `value`/`label` 二选一 | 选中值列表 |
 | `press` | `tab_id`、`key` + 定位器 | 确认信息 |
 | `click_and_wait_download` | `tab_id` + 定位器，可选 `timeout_ms` | `{path, filename, suggested_filename}` |
+| `fetch_text` | `url`，可选 `save`、`wait_ms` | `{url, status, title, chars, source, path, text}` |
+| `fetch_links` | `url`，可选 `limit` | `{url, status, title, total, truncated, links}` |
+| `search_web` | `query`，可选 `trusted_only`、`limit` | `{query, engine, total, results}` |
 
 ### 定位器规则
 
@@ -111,12 +114,63 @@ press {"tab_id": "tab-1", "css": "input", "key": "Enter"}
 
 无头模式使用 1280×720 视口。有头模式最大化真实窗口并使用实际窗口尺寸。
 
+## 正文抓取与搜索
+
+除页面交互外，另有三个面向资料整理的接口：取正文、抽链接、找来源。
+
+### `fetch_text`——干净的正文文本
+
+通过浏览器自身的请求上下文抓取原始字节并显式解码，优先使用渲染后的 DOM。`source` 字段标明走了哪条路径：`rendered` 或 `static`。
+
+显式解码针对真实问题：不少中文政府站点声明 UTF-8 实际返回 GB18030，Edge 的文本解码器会把它变成乱码。直接读取响应字节并按声明字符集走 `gb18030` 解码，可完全避开这类错误。
+
+`save=True` 时文本写入缓存目录并返回 `path`，文件开头带 `URL:` 与 `TITLE:` 两行头信息。
+
+### `fetch_links`——抽取页面链接
+
+返回 `[{href, text}]`，由 `limit` 截断。优先在 DOM 中解析，因此能拿到脚本生成的链接，失败时回退到原始 HTML 正则。
+
+### `search_web`——查找来源
+
+**在引擎自己的搜索框里输入并提交表单**进行搜索，然后按可信域名（政府、学术、权威健康机构）过滤。
+
+表单提交并非装饰。实测：直接用 `/search?q=<完整查询>` 访问 Bing 会返回 HTTP 200 和 10 个结果容器，但每条结果都是关于查询词**第一个字**的——一种看起来完全成功的静默降级。而从首页表单提交则返回正确结果（多次试验中 10/10 相关）。实测细节与百度、Yandex、搜狗的表现见 [ANTI-BOT.md](ANTI-BOT.md)。
+
+每组结果在被接受前都要通过相关性检查。当引擎返回验证码或降级结果时，工具返回 `total: 0` 并附 `blocked_engines` / `degraded_engines` 与提示，而不是把页面页脚当成搜索结果。
+
+```text
+search_web("流感疫苗 接种")  → engine: bing
+  - 中国疾病预防控制中心发布《中国流感疫苗预防接种技术指南…》
+    https://www.chinacdc.cn/jkts/202609/t20260903_1839780.html
+```
+
+## 命令行工具
+
+除交互式 CLI 外，另装三个资料整理命令：
+
+```powershell
+edge-fetch links <url> [url ...]     # 链接以 JSON 输出
+edge-fetch text <url> [url ...]      # 正文存入缓存
+edge-fetch get <url>                 # 正文打印到 stdout
+edge-fetch file urls.txt             # 每行一个 URL
+
+edge-search "查询" ["查询" ...]       # 在真实标签页中用 Bing/搜狗搜索
+edge-search --all "查询"             # 不限制可信域名
+
+edge-search-rss "查询"               # Bing RSS，完全不启浏览器
+```
+
+它们与 MCP 服务共用同一控制器、profile 与缓存，因此不会另起浏览器，数据隔离方式完全一致。
+
+缓存默认位于 `%LOCALAPPDATA%\edge-automation-mcp\cache`（可用 `EDGE_AUTOMATION_CACHE_DIR` 或 `start` 的 `cache_dir` 覆盖）。
+
 ## 配置与下载位置
 
 | 设置 | 默认值 | 覆盖方式 |
 | --- | --- | --- |
 | 配置目录 | `%LOCALAPPDATA%\edge-automation-mcp\profile` | `profile_dir` 参数或 `EDGE_AUTOMATION_PROFILE_DIR` |
 | 下载目录 | 关闭 | `download_dir` 参数或 `EDGE_AUTOMATION_DOWNLOAD_DIR` |
+| 缓存目录 | `%LOCALAPPDATA%\edge-automation-mcp\cache` | `cache_dir` 参数或 `EDGE_AUTOMATION_CACHE_DIR` |
 
 把 `profile_dir` 指向日常浏览器的用户数据目录（Edge、Chrome、Brave、Firefox）会被拒绝。同一配置目录同时只能被一个 Edge 实例打开；再次 `start` 会报 `profile_dir is already in use`。
 
@@ -160,7 +214,7 @@ close  → 依次关闭 context → browser → Playwright
 .\.venv\Scripts\python.exe -m unittest discover -s tests -t . -v
 ```
 
-测试会对本地 `http.server` 夹具启动真实 Edge 实例，无需访问公网。架构细节见 [CONTRIBUTING.md](CONTRIBUTING.md) 与 [TECHNICAL-DESIGN.md](TECHNICAL-DESIGN.md)。
+测试会对本地 `http.server` 夹具启动真实 Edge 实例，无需访问公网。`tests/test_tools.py` 覆盖解析规则、完全不启浏览器，1 秒内跑完。架构细节见 [CONTRIBUTING.md](CONTRIBUTING.md)、[ANTI-BOT.md](ANTI-BOT.md) 与 [TECHNICAL-DESIGN.md](TECHNICAL-DESIGN.md)。
 
 ## 许可证
 
