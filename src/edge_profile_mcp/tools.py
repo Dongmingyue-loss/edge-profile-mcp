@@ -132,6 +132,73 @@ def is_trusted(url: str, suffixes: Iterable[str] = DEFAULT_TRUSTED_SUFFIXES) -> 
     return any(host == suffix.lstrip(".") or host.endswith(suffix) for suffix in suffixes)
 
 
+# Hosts that are So.com's own surfaces (navigation portal, video, wenku, image,
+# news aggregator). Results pointing at these are cards, not organic hits.
+_SO360_INTERNAL_SUFFIXES: tuple[str, ...] = (
+    "so.com",
+    "360.com",
+    "360.cn",
+    "360kan.com",
+)
+
+
+def _is_so360_internal(host: str) -> bool:
+    """Return whether the host belongs to So.com or another 360 property."""
+    host = (host or "").lower()
+    if not host:
+        return True
+    return any(host == suffix or host.endswith("." + suffix)
+               for suffix in _SO360_INTERNAL_SUFFIXES)
+
+
+def parse_so360_containers(rows: Iterable[dict[str, Any]], *, limit: int,
+                           trusted_only: bool,
+                           suffixes: Iterable[str] = DEFAULT_TRUSTED_SUFFIXES
+                           ) -> list[dict[str, str]]:
+    """Map 360 (So.com) result anchors into result records.
+
+    So.com wraps outbound links in ``/link?m=...`` redirects, but every wrapped
+    anchor carries the real target in ``data-mdurl``. Preferring that attribute
+    avoids one redirect per result, which would be slow and indistinguishable
+    from the click-tracking the site expects.
+
+    Extraction is driven by ``a[data-mdurl]`` rather than ``li.res-list``: the
+    ``li`` containers hold only a handful of items (aggregate cards for news,
+    images and wenku), while the organic results live in other blocks. Rows whose
+    target is a 360 property are dropped.
+    """
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for row in rows:
+        href = str(row.get("realUrl") or "").strip() or str(row.get("href") or "").strip()
+        title = re.sub(r"\s+", " ", str(row.get("title") or "")).strip()
+        if not href.startswith("http") or len(title) < 8 or href in seen:
+            continue
+        if _is_so360_internal(urlsplit_safe(href)):
+            continue
+        if trusted_only and not is_trusted(href, suffixes):
+            continue
+        seen.add(href)
+        out.append({
+            "title": title[:120],
+            "url": href,
+            "snippet": re.sub(r"\s+", " ", str(row.get("snippet") or "")).strip()[:300],
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
+def urlsplit_safe(url: str) -> str:
+    """Return the lowercase host of a URL, or an empty string when malformed."""
+    from urllib.parse import urlsplit
+
+    try:
+        return (urlsplit(url).hostname or "")
+    except ValueError:
+        return ""
+
+
 def search_urls(query: str) -> list[tuple[str, str]]:
     """Return ``(engine_name, url)`` pairs, in order of preference.
 
@@ -152,25 +219,42 @@ def search_urls(query: str) -> list[tuple[str, str]]:
 # Search engines differ in how they accept a query, and each has its own
 # anti-automation behaviour (measured, see ANTI-BOT.md):
 #
-#   Bing     Direct URLs return results for a single leading character
-#            ("大学..." -> all results about "大"). Typing into the home-page
-#            search box and submitting the form returns correct results.
+#   Bing     Intermittently degrades a bare /search?q= request to results about
+#            the query's first character only. Submitting the home-page form
+#            improves this substantially but is not a hard guarantee.
 #   Baidu    Redirects to wappass.baidu.com/html/captcha with an image-rotation
 #            slider. Not solvable programmatically; skipped, not retried.
 #   Yandex   Redirects to yandex.com/showcaptcha with SmartCaptcha and sets a
 #            `spravka` cookie. The cookie is issued only after a human solves it.
 #   Sogou    Serves /antispider/ with a click-the-characters captcha under load.
+#   So.com   Works with a plain URL, including from a cold profile. Results are
+#            wrapped in so.com redirects that carry the real target in a
+#            data-mdurl attribute, so no redirect needs to be followed.
 #
-# So the working order is: Bing via form submission, then Sogou via form
-# submission, then Bing RSS (no browsing context, relevance-checked), and
-# finally a clear "all engines blocked" report.
+# So the working order is: Bing via form submission, then 360 (So.com) via URL,
+# then Sogou via form submission, then Bing RSS (no browsing context,
+# relevance-checked), and finally a clear "all engines blocked" report.
 
 SEARCH_PLANS: tuple[dict[str, str], ...] = (
     {"engine": "bing", "home": "https://cn.bing.com/", "input": "input[name=q]",
      "results": "#b_results li.b_algo", "mode": "form"},
+    {"engine": "so360", "home": "https://www.so.com/", "input": "#input",
+     "results": "li.res-list", "mode": "url"},
     {"engine": "sogou", "home": "https://www.sogou.com/", "input": "#query",
      "results": ".vrwrap, .rb", "mode": "form"},
 )
+
+# Query prefixes for the engines that accept a plain URL.
+SEARCH_URL_TEMPLATES: dict[str, str] = {
+    "so360": "https://www.so.com/s?q={query}",
+}
+
+
+def search_url(engine: str, query: str) -> str:
+    """Build a direct search URL for engines that accept one."""
+    from urllib.parse import quote
+
+    return SEARCH_URL_TEMPLATES[engine].format(query=quote(query))
 
 
 def search_plans() -> tuple[dict[str, str], ...]:
@@ -192,10 +276,11 @@ def looks_like_challenge(page_url: str, title: str, body_text: str) -> bool:
     if any(marker in heading for marker in (
             "captcha", "验证码", "access denied", "安全验证", "not a robot")):
         return True
-    probe = (body_text or "")[:3000]
+    probe = (body_text or "")[:3000].lower()
     return any(marker in probe for marker in (
         "请输入验证码", "unusual traffic", "安全验证", "请完成下方验证",
-        "confirm that you are not a robot", "not a robot"))
+        "confirm that you are not a robot", "not a robot",
+        "bots use duckduckgo too", "complete the following challenge"))
 
 
 def query_terms(query: str) -> list[str]:
@@ -246,22 +331,6 @@ def parse_bing_containers(rows: Iterable[dict[str, Any]], *, limit: int,
         if len(out) >= limit:
             break
     return out
-
-
-def looks_like_challenge(page_url: str, title: str, body_text: str) -> bool:
-    """Detect captcha, consent or access-denied interstitials.
-
-    A real result page never looks like these; treating them as "no results"
-    keeps the tool honest instead of returning footer links as search hits.
-    """
-    url = (page_url or "").lower()
-    heading = (title or "").strip().lower()
-    if any(marker in url for marker in ("captcha", "/antispider", "/verify", "consent.")):
-        return True
-    if any(marker in heading for marker in ("captcha", "验证码", "access denied", "安全验证")):
-        return True
-    probe = (body_text or "")[:2000]
-    return any(marker in probe for marker in ("请输入验证码", "unusual traffic", "安全验证"))
 
 
 def parse_search_results(anchors: Iterable[dict[str, str]], *, limit: int,

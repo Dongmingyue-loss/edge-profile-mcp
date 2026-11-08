@@ -14,16 +14,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caching and a `source` field reporting which path was used.
 - `fetch_links` MCP tool: return a page's anchors, parsed in the DOM first.
 - `search_web` MCP tool (`edge-search`) and `edge-search-rss` command: find
-  sources on trusted domains by submitting the engine's own search form.
-- Search guards: relevance filtering, captcha/interstitial detection, Bing
-  single-character truncation detection, and a `blocked_engines` /
-  `degraded_engines` report instead of fabricated results.
+  sources on trusted domains.
 - `cache_dir` setting (`EDGE_AUTOMATION_CACHE_DIR`) for fetched text and search
   logs.
-- [ANTI-BOT.md](ANTI-BOT.md): measured anti-automation behaviour of Bing, Bing
-  RSS, Baidu, Yandex and Sogou, with the handling policy for each.
+- [ANTI-BOT.md](ANTI-BOT.md): measured anti-automation behaviour per engine, with
+  the handling policy for each.
 - `scripts/probe_engines.py` to reproduce those measurements.
-- 33 browser-free unit tests for the parsing and filtering rules.
+- 360 (So.com) as the second search path. It answers a plain URL without
+  challenging, including from a cold profile, so it sits directly after Bing.
+  Real targets are read from the `data-mdurl` attribute that So.com attaches to
+  each wrapped outbound link, so no redirect is followed; internal 360
+  properties (so.com, 360.com, 360.cn, 360kan.com) are filtered out.
+- Challenge detection for DuckDuckGo's explicit "bots use DuckDuckGo too" page.
+- Search guards: relevance filtering, captcha/interstitial detection, and a
+  `blocked_engines` / `degraded_engines` report instead of fabricated results.
+
+### Changed
+
+- `ANTI-BOT.md` no longer describes Bing truncation as a deterministic rule.
+  Repeated measurement showed it is intermittent and correlates with session
+  state, not with the URL shape: a fresh profile's first request was the most
+  likely to degrade, later requests in the same session were fine, and adding
+  `form=` parameters made no difference. The documented guarantee is now the
+  relevance check, not the request shape.
+
+### Fixed
+
+- Duplicate `looks_like_challenge` definition: the older body shadowed the newer
+  one, so the added markers never took effect.
 
 ## [0.1.0] - 2026-11-08
 

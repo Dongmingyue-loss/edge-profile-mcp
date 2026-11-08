@@ -107,6 +107,61 @@ class TrustedDomainTests(unittest.TestCase):
         self.assertFalse(tools.is_trusted(""))
 
 
+class So360ParsingTests(unittest.TestCase):
+    """360 wraps outbound links; the real target lives in data-mdurl."""
+
+    def test_prefers_data_mdurl_over_redirect(self):
+        rows = [
+            {"realUrl": "https://www.163.com/dy/article/ABC.html",
+             "href": "https://www.so.com/link?m=xyz",
+             "title": "50岁及以上成年人有了新型流感疫苗,你该接种吗?", "snippet": ""},
+        ]
+        got = tools.parse_so360_containers(rows, limit=10, trusted_only=False)
+        self.assertEqual(got[0]["url"], "https://www.163.com/dy/article/ABC.html")
+
+    def test_drops_internal_so_com_destinations(self):
+        rows = [
+            {"realUrl": "", "href": "https://wenku.so.com/s?q=x", "title": "流感疫苗 接种 - 360文库"},
+            {"realUrl": "", "href": "https://image.so.com/i?q=x", "title": "流感疫苗 接种_360图片"},
+            {"realUrl": "https://hao.360.com/?src=x", "href": "", "title": "360导航首页入口"},
+            {"realUrl": "https://www.mfk.com/ask/1.shtml", "href": "",
+             "title": "流感疫苗接种注意事项"},
+        ]
+        got = tools.parse_so360_containers(rows, limit=10, trusted_only=False)
+        self.assertEqual([r["url"] for r in got], ["https://www.mfk.com/ask/1.shtml"])
+
+    def test_trusted_filter_keeps_only_authoritative(self):
+        rows = [
+            {"realUrl": "https://www.xinmi.gov.cn/xxbd/1.jhtml", "title": "免费流感疫苗接种点"},
+            {"realUrl": "https://www.163.com/dy/article/1.html", "title": "流感疫苗接种要点"},
+        ]
+        got = tools.parse_so360_containers(rows, limit=10, trusted_only=True)
+        self.assertEqual([r["url"] for r in got], ["https://www.xinmi.gov.cn/xxbd/1.jhtml"])
+
+    def test_drops_short_titles_and_duplicates(self):
+        rows = [
+            {"realUrl": "https://a.gov.cn/x/y", "title": "短标题"},
+            {"realUrl": "https://a.gov.cn/x/y", "title": "这是一个足够长的标题内容"},
+            {"realUrl": "https://a.gov.cn/x/y", "title": "这是一个足够长的标题内容"},
+        ]
+        got = tools.parse_so360_containers(rows, limit=10, trusted_only=False)
+        self.assertEqual(len(got), 1)
+
+    def test_search_url_builder(self):
+        url = tools.search_url("so360", "流感 疫苗")
+        self.assertTrue(url.startswith("https://www.so.com/s?q="))
+        self.assertIn("%E6%B5%81", url)
+
+    def test_plans_order_and_modes(self):
+        plans = tools.search_plans()
+        engines = [p["engine"] for p in plans]
+        self.assertEqual(engines[0], "bing")
+        self.assertIn("so360", engines)
+        modes = {p["engine"]: p["mode"] for p in plans}
+        self.assertEqual(modes["so360"], "url")
+        self.assertEqual(modes["bing"], "form")
+
+
 class ChallengeDetectionTests(unittest.TestCase):
     def test_baidu_wappass(self):
         self.assertTrue(tools.looks_like_challenge(
@@ -127,6 +182,16 @@ class ChallengeDetectionTests(unittest.TestCase):
         self.assertFalse(tools.looks_like_challenge(
             "https://cn.bing.com/search?q=x", "x - 搜索",
             "搜索结果 第一条 第二条"))
+
+    def test_duckduckgo_bot_page(self):
+        self.assertTrue(tools.looks_like_challenge(
+            "https://html.duckduckgo.com/html/", "DuckDuckGo",
+            "Unfortunately, bots use DuckDuckGo too. Please complete the following challenge"))
+
+    def test_so_com_normal_page_is_not_a_challenge(self):
+        self.assertFalse(tools.looks_like_challenge(
+            "https://www.so.com/s?q=x", "x_360搜索",
+            "搜索 网页 资讯 结果列表"))
 
 
 class RelevanceTests(unittest.TestCase):

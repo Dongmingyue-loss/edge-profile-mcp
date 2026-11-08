@@ -28,14 +28,18 @@ DEFAULT_QUERY = "大学生健康教育指南"
 ENGINES = {
     "bing": ("https://cn.bing.com/search?q=", ["#b_results li.b_algo"]),
     "bing-rss": None,  # handled without a page
+    "so360": ("https://www.so.com/s?q=", ["li.res-list", "a[data-mdurl]"]),
     "baidu": ("https://www.baidu.com/s?wd=", ["#content_left .result", ".c-container"]),
     "yandex": ("https://yandex.com/search/?text=", [".serp-item", ".Organic"]),
     "sogou": ("https://www.sogou.com/web?query=", [".vrwrap", ".rb"]),
+    "ddg-html": ("https://html.duckduckgo.com/html/?q=", [".result", ".result__a"]),
+    "brave": ("https://search.brave.com/search?q=", [".snippet", "#results"]),
 }
 
 CHALLENGE_MARKERS = (
     "captcha", "antispider", "verify", "challenge", "smartcaptcha", "showcaptcha",
     "wappass", "安全检查", "验证码", "unusual traffic", "not a robot", "安全验证",
+    "bots use duckduckgo too",
 )
 
 

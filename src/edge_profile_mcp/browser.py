@@ -634,15 +634,23 @@ class BrowserController:
             for plan in _tools.search_plans():
                 engine = plan["engine"]
                 try:
-                    page.goto(plan["home"], wait_until="domcontentloaded",
-                              timeout=self._timeout_ms * 2)
-                    page.wait_for_timeout(1500)
-                    box = page.locator(plan["input"]).first
-                    box.fill(query, timeout=self._timeout_ms)
-                    box.press("Enter", timeout=self._timeout_ms)
-                    page.wait_for_load_state("domcontentloaded",
-                                             timeout=self._timeout_ms * 2)
-                    page.wait_for_timeout(2500)
+                    if plan.get("mode") == "url":
+                        # So.com answers a plain URL even from a cold profile, so
+                        # there is no reason to drive its home page first.
+                        page.goto(_tools.search_url(engine, query),
+                                  wait_until="domcontentloaded",
+                                  timeout=self._timeout_ms * 2)
+                        page.wait_for_timeout(3000)
+                    else:
+                        page.goto(plan["home"], wait_until="domcontentloaded",
+                                  timeout=self._timeout_ms * 2)
+                        page.wait_for_timeout(1500)
+                        box = page.locator(plan["input"]).first
+                        box.fill(query, timeout=self._timeout_ms)
+                        box.press("Enter", timeout=self._timeout_ms)
+                        page.wait_for_load_state("domcontentloaded",
+                                                 timeout=self._timeout_ms * 2)
+                        page.wait_for_timeout(2500)
                 except PlaywrightError:
                     continue
 
@@ -665,6 +673,18 @@ class BrowserController:
                         "  snippet: cap ? (cap.textContent || '').trim() : ''};})",
                     )
                     current = _tools.parse_bing_containers(
+                        rows, limit=limit, trusted_only=trusted_only)
+                elif engine == "so360":
+                    rows = page.eval_on_selector_all(
+                        "a[data-mdurl]",
+                        "els => els.map(a => {"
+                        " const blk = a.closest('li, .res-list, .result, div');"
+                        " const cap = blk ? blk.querySelector('.res-desc, .res-rich, p') : null;"
+                        " return {realUrl: a.getAttribute('data-mdurl') || '',"
+                        "  title: (a.textContent || '').trim(),"
+                        "  snippet: cap ? (cap.textContent || '').trim() : ''};})",
+                    )
+                    current = _tools.parse_so360_containers(
                         rows, limit=limit, trusted_only=trusted_only)
                 else:
                     anchors = page.eval_on_selector_all(

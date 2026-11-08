@@ -159,18 +159,20 @@ created by scripts are included, with a raw-HTML regex as fallback.
 
 ### `search_web` — find sources
 
-Searches by **typing into the engine's own search box** and submitting the form,
-then filters results to trusted domains (government, academic, major health).
+Searches through a short list of engines and filters results to trusted domains
+(government, academic, major health). Engine order: **Bing** (submitting its own
+search form), **360 / So.com** (plain URL — it does not challenge), then Sogou,
+then Bing RSS as a last resort.
 
-The form submission is not cosmetic. Measured behaviour: a bare
-`/search?q=<full query>` request to Bing returns HTTP 200 with 10 result
-containers, but every result is about the query's **first character** — a silent
-degradation that looks like success. Submitting the home-page form returns correct
-results (10/10 relevant across repeated trials). See [ANTI-BOT.md](ANTI-BOT.md)
-for the measurements and for what Baidu, Yandex and Sogou do.
+The form submission is not cosmetic. Bing can return HTTP 200 with a
+full-looking page while every result matches only the query's **first
+character** — a silent degradation that looks like success. Submitting the
+home-page form reduces this; it does not eliminate it, because the behaviour is
+intermittent. See [ANTI-BOT.md](ANTI-BOT.md) for the measurements.
 
-Every result set passes a relevance check before being accepted. When engines
-serve captchas or truncated results, the tool returns `total: 0` with
+Because no request shape is trustworthy, every result set passes a relevance
+check before being accepted, and a failing engine falls through to the next. When
+all engines are blocked or degraded the tool returns `total: 0` with
 `blocked_engines` / `degraded_engines` and a hint, rather than passing page
 furniture off as results.
 
@@ -179,6 +181,11 @@ search_web("流感疫苗 接种")  → engine: bing
   - 中国疾病预防控制中心发布《中国流感疫苗预防接种技术指南…》
     https://www.chinacdc.cn/jkts/202609/t20260903_1839780.html
 ```
+
+About So.com: it wraps every outbound link in a `/link?m=...` redirect, but each
+wrapped anchor carries the real destination in a `data-mdurl` attribute, so no
+redirect is followed. Results are extracted from `a[data-mdurl]` rather than from
+`li.res-list`, whose containers hold mostly aggregate cards.
 
 ## Command line tools
 

@@ -56,14 +56,17 @@ instead of navigating manually:
 ### Expect and report blocks
 
 Search engines actively resist automation, and the failure mode is deceptive:
-Bing answers a bare `/search?q=...` URL with HTTP 200 and ten results that all
-match only the query's first character. `search_web` avoids this by submitting
-the engine's form, and every result set is relevance-checked.
+Bing can answer with HTTP 200 and ten results that all match only the query's
+first character. This is intermittent, so a single working query proves nothing.
+`search_web` mitigates it by submitting the engine's form and by trying 360
+(So.com) next, but neither is a guarantee — every result set is relevance-checked
+before being accepted.
 
 When it returns `total: 0`, read `blocked_engines` and `degraded_engines`:
 
 - **blocked** means a captcha or verification page was served (Baidu wappass
-  slider, Yandex SmartCaptcha, Sogou antispider). Do not attempt to solve it.
+  slider, Yandex SmartCaptcha, Sogou antispider, DuckDuckGo bot page). Do not
+  attempt to solve it.
 - **degraded** means results came back unrelated to the query — usually a
   truncated query.
 
