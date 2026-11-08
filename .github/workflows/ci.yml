@@ -8,8 +8,9 @@ on:
 
 jobs:
   test:
-    # The test suite drives the real Microsoft Edge, which ships with the
-    # windows-latest runner image.
+    # The test suite drives the real Microsoft Edge. windows-latest does not ship
+    # a usable Edge for automation, so it is installed explicitly below rather
+    # than relying on the image.
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -28,16 +29,29 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .
-          python -m playwright install --with-deps msedge
 
-      - name: Verify Edge is available
+      - name: Install Microsoft Edge
         shell: pwsh
         run: |
-          $edge = Get-Command msedge -ErrorAction SilentlyContinue
-          if (-not $edge) {
-            $path = "$env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe"
-            if (-not (Test-Path $path)) { throw "Microsoft Edge not found on runner" }
+          # Playwright's installer puts Edge where channel="msedge" looks for it.
+          python -m playwright install msedge
+
+      - name: Report Edge location
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "$env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe",
+            "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+            "$env:LOCALAPPDATA\Microsoft\Edge\Application\msedge.exe"
+          )
+          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found) {
+            Write-Host "Edge executable not found in the usual locations."
+            Get-ChildItem -Path "$env:LOCALAPPDATA\ms-playwright" -Filter msedge.exe -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 3 -ExpandProperty FullName
+            throw "Microsoft Edge not available; the browser tests cannot run."
           }
+          Write-Host "Using Edge at $found"
 
       - name: Import check
         run: python -c "import edge_profile_mcp; print(edge_profile_mcp.__version__)"
