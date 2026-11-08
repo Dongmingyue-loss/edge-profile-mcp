@@ -162,6 +162,36 @@ class So360ParsingTests(unittest.TestCase):
         self.assertEqual(modes["bing"], "form")
 
 
+class BrowserChannelTests(unittest.TestCase):
+    """The channel override exists for CI; the default must stay Edge."""
+
+    def setUp(self):
+        import os
+        self._os = os
+        self._old = os.environ.get("EDGE_AUTOMATION_BROWSER_CHANNEL")
+
+    def tearDown(self):
+        if self._old is None:
+            self._os.environ.pop("EDGE_AUTOMATION_BROWSER_CHANNEL", None)
+        else:
+            self._os.environ["EDGE_AUTOMATION_BROWSER_CHANNEL"] = self._old
+
+    def test_default_is_msedge(self):
+        from edge_profile_mcp.browser import default_browser_channel
+        self._os.environ.pop("EDGE_AUTOMATION_BROWSER_CHANNEL", None)
+        self.assertEqual(default_browser_channel(), "msedge")
+
+    def test_empty_means_bundled_chromium(self):
+        from edge_profile_mcp.browser import default_browser_channel
+        self._os.environ["EDGE_AUTOMATION_BROWSER_CHANNEL"] = ""
+        self.assertIsNone(default_browser_channel())
+
+    def test_explicit_value_is_honoured(self):
+        from edge_profile_mcp.browser import default_browser_channel
+        self._os.environ["EDGE_AUTOMATION_BROWSER_CHANNEL"] = "chrome"
+        self.assertEqual(default_browser_channel(), "chrome")
+
+
 class ChallengeDetectionTests(unittest.TestCase):
     def test_baidu_wappass(self):
         self.assertTrue(tools.looks_like_challenge(

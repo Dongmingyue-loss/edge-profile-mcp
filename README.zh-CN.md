@@ -173,6 +173,9 @@ edge-search-rss "查询"               # Bing RSS，完全不启浏览器
 | 配置目录 | `%LOCALAPPDATA%\edge-automation-mcp\profile` | `profile_dir` 参数或 `EDGE_AUTOMATION_PROFILE_DIR` |
 | 下载目录 | 关闭 | `download_dir` 参数或 `EDGE_AUTOMATION_DOWNLOAD_DIR` |
 | 缓存目录 | `%LOCALAPPDATA%\edge-automation-mcp\cache` | `cache_dir` 参数或 `EDGE_AUTOMATION_CACHE_DIR` |
+| 浏览器 | Edge（`channel="msedge"`） | `EDGE_AUTOMATION_BROWSER_CHANNEL` —— 设为空值改用内置 Chromium |
+
+浏览器覆盖项专为 CI 存在：runner 上没有 Edge，Playwright 也无法安装它。它只改变启动哪个二进制，私有配置隔离、正文抓取与搜索行为完全一致。
 
 把 `profile_dir` 指向日常浏览器的用户数据目录（Edge、Chrome、Brave、Firefox）会被拒绝。同一配置目录同时只能被一个 Edge 实例打开；再次 `start` 会报 `profile_dir is already in use`。
 

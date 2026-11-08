@@ -216,6 +216,11 @@ Cache location defaults to `%LOCALAPPDATA%\edge-automation-mcp\cache`
 | Profile | `%LOCALAPPDATA%\edge-automation-mcp\profile` | `profile_dir` param or `EDGE_AUTOMATION_PROFILE_DIR` |
 | Downloads | disabled | `download_dir` param or `EDGE_AUTOMATION_DOWNLOAD_DIR` |
 | Cache | `%LOCALAPPDATA%\edge-automation-mcp\cache` | `cache_dir` param or `EDGE_AUTOMATION_CACHE_DIR` |
+| Browser | Edge (`channel="msedge"`) | `EDGE_AUTOMATION_BROWSER_CHANNEL` — set to empty for bundled Chromium |
+
+The browser override exists for CI, where no Edge is installed and Playwright
+cannot install one. It changes only which binary is launched; the private-profile
+isolation, extraction and search behaviour are identical.
 
 Pointing `profile_dir` at a daily-driver browser data directory (Edge, Chrome,
 Brave, Firefox) is rejected. One profile directory can be open by only one Edge

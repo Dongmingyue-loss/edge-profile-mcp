@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Challenge detection for DuckDuckGo's explicit "bots use DuckDuckGo too" page.
 - Search guards: relevance filtering, captcha/interstitial detection, and a
   `blocked_engines` / `degraded_engines` report instead of fabricated results.
+- `EDGE_AUTOMATION_BROWSER_CHANNEL` to override the launched browser. Empty means
+  bundled Chromium. It exists because CI runners have no Edge and Playwright
+  cannot install one; production default remains `msedge`.
 
 ### Changed
 
@@ -40,8 +43,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- CI failed on every matrix job: `windows-latest` has no Edge, and
+  `playwright install msedge` is not a valid target. CI now installs Chromium and
+  clears the channel override.
 - Duplicate `looks_like_challenge` definition: the older body shadowed the newer
   one, so the added markers never took effect.
+- Deprecated `License :: OSI Approved` classifier replaced with a PEP 639 SPDX
+  expression, so the wheel ships `dist-info/licenses/LICENSE` and the build is
+  warning-free.
 
 ## [0.1.0] - 2026-11-08
 

@@ -96,6 +96,24 @@ def _expand_env(path: str) -> str:
     return os.path.expanduser(os.path.expandvars(path))
 
 
+def default_browser_channel() -> str | None:
+    """Return the Playwright channel to launch, or None for bundled Chromium.
+
+    Production use is ``msedge`` so the automation drives the real browser the
+    user already has. CI runners have no Edge and Playwright cannot install one
+    (``playwright install`` only knows chromium/firefox/webkit and the system
+    ``chrome`` channel), so continuous integration sets
+    ``EDGE_AUTOMATION_BROWSER_CHANNEL=`` to an empty value and installs Chromium
+    instead. The override exists for that case only; the isolation, profile and
+    anti-bot behaviour are identical either way.
+    """
+    value = os.environ.get("EDGE_AUTOMATION_BROWSER_CHANNEL")
+    if value is None:
+        return "msedge"
+    value = value.strip()
+    return value or None
+
+
 def _operation(method: _F) -> _F:
     @wraps(method)
     def wrapped(self: BrowserController, *args: Any, **kwargs: Any) -> Any:
@@ -301,13 +319,15 @@ class BrowserController:
         self._owner = threading.get_ident()
         try:
             self._playwright = sync_playwright().start()
+            channel = default_browser_channel()
             options: dict[str, Any] = {
-                "channel": "msedge",
                 "headless": self._headless,
                 "timeout": self._timeout_ms,
                 "accept_downloads": self._download_dir is not None,
                 "ignore_default_args": list(_NORMAL_BROWSER_ARGS),
             }
+            if channel is not None:
+                options["channel"] = channel
             if self._headless:
                 options["viewport"] = {"width": 1280, "height": 720}
             else:

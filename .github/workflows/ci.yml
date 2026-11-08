@@ -8,9 +8,12 @@ on:
 
 jobs:
   test:
-    # The test suite drives the real Microsoft Edge. windows-latest does not ship
-    # a usable Edge for automation, so it is installed explicitly below rather
-    # than relying on the image.
+    # The suite drives a real browser. windows-latest has no Edge and Playwright
+    # cannot install one (playwright install knows chromium/firefox/webkit and
+    # the system "chrome" channel only), so CI installs bundled Chromium and
+    # clears EDGE_AUTOMATION_BROWSER_CHANNEL to use it. Everything else — the
+    # private profile, the isolation checks, the extraction and search logic —
+    # runs unchanged. Real-Edge behaviour is verified locally on Windows.
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -30,28 +33,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
-      - name: Install Microsoft Edge
-        shell: pwsh
-        run: |
-          # Playwright's installer puts Edge where channel="msedge" looks for it.
-          python -m playwright install msedge
-
-      - name: Report Edge location
-        shell: pwsh
-        run: |
-          $candidates = @(
-            "$env:ProgramFiles(x86)\Microsoft\Edge\Application\msedge.exe",
-            "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
-            "$env:LOCALAPPDATA\Microsoft\Edge\Application\msedge.exe"
-          )
-          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $found) {
-            Write-Host "Edge executable not found in the usual locations."
-            Get-ChildItem -Path "$env:LOCALAPPDATA\ms-playwright" -Filter msedge.exe -Recurse -ErrorAction SilentlyContinue |
-              Select-Object -First 3 -ExpandProperty FullName
-            throw "Microsoft Edge not available; the browser tests cannot run."
-          }
-          Write-Host "Using Edge at $found"
+      - name: Install the test browser
+        run: python -m playwright install chromium
 
       - name: Import check
         run: python -c "import edge_profile_mcp; print(edge_profile_mcp.__version__)"
@@ -59,7 +42,9 @@ jobs:
       - name: Run tests
         run: python -m unittest discover -s tests -t . -v
         env:
-          # Keep browser sessions out of the runner's real Edge profile.
+          # Use bundled Chromium: no Edge is available on the runner.
+          EDGE_AUTOMATION_BROWSER_CHANNEL: ""
+          # Keep browser sessions out of the runner's real browser profile.
           EDGE_AUTOMATION_PROFILE_DIR: ${{ runner.temp }}\ci-edge-profile
 
   package:
